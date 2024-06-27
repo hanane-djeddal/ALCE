@@ -5,6 +5,7 @@ import re
 import string
 import torch
 import copy
+import pandas as pd
 
 from nltk import sent_tokenize
 import numpy as np
@@ -488,9 +489,22 @@ def main():
 
     args = parser.parse_args()
 
-    with open(args.f) as f:
-        data_with_config = json.load(f)
-    data = data_with_config['data'] 
+    if args.f.endswith(".csv"):
+            df = pd.read_csv(
+                args.f,
+                index_col=0,
+                converters={
+                    "docs": eval,
+                    "gold_truth": eval,
+                    "annotations": eval,
+                    "gold_quotes": eval,
+                },
+            )
+            data = df.to_dict("records")
+    else:
+        with open(args.f) as f:
+            data_with_config = json.load(f)
+        data = data_with_config['data'] 
 
     if "qampari" in args.f:
         args.no_rouge = True
