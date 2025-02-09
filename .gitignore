@@ -162,3 +162,12 @@ cython_debug/
 data/
 result
 *.tar
+
+
+#outputs
+*.out
+*.json
+*.csv
+*.score
+*.pkl
+gtr_wikipedia_index.pkl
