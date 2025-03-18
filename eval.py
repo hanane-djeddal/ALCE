@@ -140,8 +140,11 @@ def compute_rouge(data):
             references1[idx] = item["annotations"][0]["long_answer"]
             references2[idx] = item["annotations"][1]["long_answer"]
         else:
-            references1[idx] = item["answer"]
-            references2[idx] = item["answer"]
+            references1[idx] = item["answers"][0]["answer"]
+            if len(item["answers"])>1:
+                references2[idx] = item["answers"][1]["answer"]
+            else:
+                references2[idx] = item["answers"][0]["answer"]
 
     h, r1, r2 = [], [], []
 
@@ -421,7 +424,7 @@ def compute_autoais(
                 joint_entail = _run_nli_autoais(joint_passage, target_sent)
                 autoais_log.append(
                     {
-                        "question": item["question"],
+                        "question": item["question"], ##question query
                         "output": item["output"],
                         "claim": sent,
                         "passage": [joint_passage],

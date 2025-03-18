@@ -12,40 +12,39 @@ os.environ["HTTP_PROXY"] = "http://hacienda:3128"
 os.environ["HTTPS_PROXY"] = "http://hacienda:3128" 
 
 TOPK_BM25 = 100  # Number of initial documents from BM25
-TOPK_FINAL = 10   # Number of final documents after reranking
 
 
-def bm25_sphere_retrieval(data):
-    from pyserini.search import LuceneSearcher
+# def bm25_sphere_retrieval(data):
+#     from pyserini.search import LuceneSearcher
 
-    index_path = os.environ.get("BM25_SPHERE_PATH")
-    print("loading bm25 index, this may take a while...")
-    searcher = LuceneSearcher(index_path)
+#     index_path = os.environ.get("BM25_SPHERE_PATH")
+#     print("loading bm25 index, this may take a while...")
+#     searcher = LuceneSearcher(index_path)
 
-    print("running bm25 retrieval...")
-    for d in tqdm(data):
-        query = d["question"]
-        try:
-            hits = searcher.search(query, TOPK)
-        except Exception as e:
-            # https://github.com/castorini/pyserini/blob/1bc0bc11da919c20b4738fccc020eee1704369eb/scripts/kilt/anserini_retriever.py#L100
-            if "maxClauseCount" in str(e):
-                query = " ".join(query.split())[:950]
-                hits = searcher.search(query, TOPK)
-            else:
-                raise e
+#     print("running bm25 retrieval...")
+#     for d in tqdm(data):
+#         query = d["question"]
+#         try:
+#             hits = searcher.search(query, TOPK)
+#         except Exception as e:
+#             # https://github.com/castorini/pyserini/blob/1bc0bc11da919c20b4738fccc020eee1704369eb/scripts/kilt/anserini_retriever.py#L100
+#             if "maxClauseCount" in str(e):
+#                 query = " ".join(query.split())[:950]
+#                 hits = searcher.search(query, TOPK)
+#             else:
+#                 raise e
 
-        docs = []
-        for hit in hits:
-            h = json.loads(str(hit.docid).strip())
-            docs.append(
-                {
-                    "title": h["title"],
-                    "text": hit.raw,
-                    "url": h["url"],
-                }
-            )
-        d["docs"] = docs
+#         docs = []
+#         for hit in hits:
+#             h = json.loads(str(hit.docid).strip())
+#             docs.append(
+#                 {
+#                     "title": h["title"],
+#                     "text": hit.raw,
+#                     "url": h["url"],
+#                 }
+#             )
+#         d["docs"] = docs
 
 def load_wiki_docs():
     """Loads Wikipedia documents from DPR_WIKI_TSV file."""
@@ -91,7 +90,7 @@ def gtr_rerank(encoder, queries, docs, bm25_results):
     final_results = []
     for qi, q_emb in enumerate(query_embs):
         scores = np.dot(doc_embs[qi], q_emb)  # Compute cosine similarity
-        topk_indices = np.argsort(scores)[::-1][:TOPK_FINAL]  # Get top-10
+        topk_indices = np.argsort(scores)[::-1]  # Get top-10
 
         final_docs = []
         for idx in topk_indices:
@@ -102,7 +101,7 @@ def gtr_rerank(encoder, queries, docs, bm25_results):
     return final_results
 
 
-def hybrid_retrieval(data, dataset_name):
+def hybrid_retrieval(data, dataset_name,top=10):
     """Hybrid BM25 + GTR retrieval for either MIRACL or Wikipedia."""
     device = "cuda" if torch.cuda.is_available() else "cpu"
     encoder = SentenceTransformer("sentence-transformers/gtr-t5-xxl", device=device)
@@ -128,7 +127,7 @@ def hybrid_retrieval(data, dataset_name):
 
 
     # Rerank with GTR
-    reranked_results = gtr_rerank(encoder, questions, docs, bm25_results)
+    reranked_results = gtr_rerank(encoder, questions, docs, bm25_results)[:top]
 
     # Update dataset with retrieved documents
     for qi, ret in enumerate(reranked_results):
@@ -140,7 +139,8 @@ if __name__ == "__main__":
     parser.add_argument("--retriever", type=str, required=True, help="options: bm25_gtr")
     parser.add_argument("--dataset", type=str, default="alce", help="options: miracl/alce")
     parser.add_argument("--data_file", type=str, help="Path to the data file")
-    parser.add_argument("--output_file", type=str, required=True, help="Output file")
+    parser.add_argument("--top", type=int, default=10, help="Documents to keep")
+    parser.add_argument("--output_file", type=str, help="Output file")
     parser.add_argument("--column_name", type=str, default="retrieved_docs", help="Column name to store  retrieved docs")
     args = parser.parse_args()
 
@@ -159,7 +159,7 @@ if __name__ == "__main__":
             data = json.load(f)
 
     if args.retriever == "bm25_gtr":
-        hybrid_retrieval(data, args.dataset)
+        hybrid_retrieval(data, args.dataset,args.top)
     else:
         raise NotImplementedError("Only 'bm25_gtr' retriever is implemented.")
     

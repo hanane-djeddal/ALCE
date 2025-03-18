@@ -111,6 +111,6 @@ if __name__ == "__main__":
         gtr_retrieval(data, args.dataset.lower())
     else:
         raise NotImplementedError("Only 'gtr' retriever is implemented.")
-
-    with open(args.output_file, "w") as f:
+    results_file_name = args.output_file if args.output_file else args.dataset+"_retrieval_"+args.retriever+".json"
+    with open(results_file_name, "w") as f:
         json.dump(data, f, indent=4)
