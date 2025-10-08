@@ -139,6 +139,9 @@ def compute_rouge(data):
         if "annotations" in item and item["annotations"] is not None:  # For ASQA
             references1[idx] = item["annotations"][0]["long_answer"]
             references2[idx] = item["annotations"][1]["long_answer"]
+        elif "answer" in item and item["answer"] is not None:
+            references1[idx] = item["answer"]
+            references2[idx] = item["answer"]
         else:
             references1[idx] = item["answers"][0]["answer"]
             if len(item["answers"])>1:
@@ -582,6 +585,7 @@ def main():
     )
 
     args = parser.parse_args()
+    print("Evaluating file:", args.f)
 
     if args.f.endswith(".csv"):
         df = pd.read_csv(
@@ -630,6 +634,8 @@ def main():
     for i in range(len(data)):
         data[i]["output"] = data[i]["output"].strip().split("\n")[0]
         data[i]["output"] = data[i]["output"].replace("<|im_end|>", "")
+        if "query" in data[i].keys():
+            data[i]["question"] = data[i]["query"]
 
     # Remove all citations for all non-AutoAIS evaluation
     normalized_data = copy.deepcopy(data)
