@@ -172,3 +172,5 @@ result
 *.score
 *.pkl
 gtr_wikipedia_index.pkl
+
+*.err

@@ -42,6 +42,7 @@ def get_max_memory():
     max_memory = f"{free_in_GB-6}GB"
     n_gpus = torch.cuda.device_count()
     max_memory = {i: max_memory for i in range(n_gpus)}
+    logger.info(f"Maximum memory available {max_memory}")
     return max_memory
 
 
