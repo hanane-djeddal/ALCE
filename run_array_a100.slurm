@@ -2,8 +2,8 @@
 # Script JEANZAY
 
 ############ GENERAL SETTINGS ############
-#SBATCH --job-name=truebenchmetric_eval
-#SBATCH --array=0-8 # 
+#SBATCH --job-name=true_eval
+#SBATCH --array=0-4 # 
 #SBATCH --output=logs/nodrw_%A_%a.out
 #SBATCH --error=logs/nodrw_%A_%a.err
 ##########################################
@@ -76,4 +76,11 @@ export HF_HOME=$WORK/.cache/huggingface
 #CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "attriBench"  --split "test" --batchsize 400 --batchid  $SLURM_ARRAY_TASK_ID 
 #CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --f /lustre/fswork/projects/rech/fiz/udo61qq/Code/RAGnRoll/results/augmented_datasets/Llama-3.1-8B-Instruct_allfewshot/all_augmented_datasetLlama-3.1-8B-Instruct_allfewshot_corrected.json --filter_column "example_type" --filter_value generated --tag "generated_augmented" --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID 
 
-CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "true" --true_folder "/lustre/fswork/projects/rech/fiz/udo61qq/Code/true/" --scored --evaluate --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID 
+#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "true" --true_folder "/lustre/fswork/projects/rech/fiz/udo61qq/Code/true/" --scored --evaluate --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID 
+
+#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "true" --true_folder "/lustre/fswork/projects/rech/fiz/udo61qq/Code/true/" --evaluate --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID --eval_model "llm" --tag  "scored_qwen3-4B_ft_unsloth_qwen_classif_3ep_true_16bit" --vllm  --model_path /lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/2ep_attribench_ogargs_3ep_16bit --scored
+
+CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "true" --true_folder "/lustre/fswork/projects/rech/fiz/udo61qq/Code/true/" --evaluate --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID --eval_model "llm" --tag  "scored_qwen3-4B_zs" --vllm  --scored
+
+
+#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --f /lustre/fswork/projects/rech/fiz/udo61qq/Code/RAGnRoll/results/augmented_datasets/Llama-3.1-8B-Instruct_allfewshot_v01/all_augmented_datasetLlama-3.1-8B-Instruct_allfewshot_v01.json  --filter_column "example_type" --filter_value generated --group_by_column "error_type" --tag "train_gen_evaluated" --eval_model "nli_aligned" --scored --evaluate --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID 

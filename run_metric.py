@@ -16,6 +16,11 @@ import pandas as pd
 import sys
 import logging
 import datasets
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from vllm import LLM, SamplingParams
+from vllm.lora.request import LoRARequest
+import math
+
 
 from collections import defaultdict
 import time
@@ -43,9 +48,18 @@ from RAGnRoll.tools.eval_tools import read_json_files_from_folder, compute_metri
 os.environ['HF_HOME'] = os.environ['WORK'] + '/.cache/huggingface'
 
 AUTOAIS_MODEL = "google/t5_xxl_true_nli_mixture"
+QWEN_MODEL = "Qwen/Qwen3-4B" #"Qwen/Qwen2.5-14B-Instruct-1M"
+
+MAX_MODEL_LEN = 4096 
+MAX_NEW_TOKENS = 1024
+
+MAX_PROMPT_FOR_TRUNCATION = MAX_MODEL_LEN - MAX_NEW_TOKENS
 
 global autoais_model, autoais_tokenizer
 autoais_model, autoais_tokenizer = None, None
+
+global qwen_model, qwen_tokenizer
+qwen_model, qwen_tokenizer = None, None
 
 
 
@@ -126,6 +140,159 @@ autoais_model, autoais_tokenizer = None, None
     #     # result.update(final_autoais_result) 
     #     print("All batches processed and results aggregated.")
 
+def prepare_input(query,response,claim, passage,thinking=True):
+    """
+    """
+    system_prompt = """You will be given a CLAIM and a DOCUMENT. Determine whether the claim is 'GROUNDED' or 'NOT GROUNDED' based on the document. A 'GROUNDED' claim is fully supported by the information provided in the document. It should be directly verifiable from the document. Only return the classification as the answer: 1 for 'GROUNDED' or 0 for 'NOT GROUNDED' without any explanation"""
+
+    user_prompt = f"""CLAIM: {claim} 
+
+    DOCUMENT: {passage}
+
+    CLASSIFICATION:"""
+
+    # system_prompt = """Your task is to determine whether a claim is 'GROUNDED' or 'NOT GROUNDED' based on a document. You will be given the "CLAIM" and the "DOCUMENT". The "CLAIM" is a part of a full answer in reponse to a question, you will also be given the full "ANSWER" as well as the "QUESTION" for full context. Use the "QUESTION" and the full "ANSWER" to fully contexualize the "CLAIM" then examine the "CLAIM" and the "DOCUMENT" to determine whether the "CLAIM" is grounded or not.  A 'GROUNDED' claim is fully supported by the information provided in the "DOCUMENT". It should be directly verifiable from the "DOCUMENT". Only return the classification as the your answer: 1 for 'GROUNDED' or 0 for 'NOT GROUNDED' without any explanation"""
+    # user_prompt = f"""QUESTION:{query}
+
+    # FULL ANSWER: {response}
+
+    # CLAIM: {claim} 
+
+    # DOCUMENT: {passage}
+
+    # CLASSIFICATION:"""
+
+
+    messages = [
+            {
+            "role": "system",
+            "content": system_prompt,
+            },
+            {"role": "user", 
+            "content": user_prompt}
+        ]
+
+    global qwen_model, qwen_tokenizer
+    if qwen_model is None:
+        qwen_tokenizer = AutoTokenizer.from_pretrained(QWEN_MODEL)
+        qwen_model = AutoModelForCausalLM.from_pretrained(
+            QWEN_MODEL,
+            torch_dtype=torch.float16,
+            device_map="auto"
+        )
+
+    # Apply chat template
+    text_input = qwen_tokenizer.apply_chat_template(
+        messages, add_generation_prompt=True, return_tensors="pt",tokenize=False,enable_thinking=thinking 
+    )
+    return text_input
+
+def get_classification_confidence(raw_output, qwen_tokenizer):
+    """Extract confidence for classification tokens"""
+    logprobs_data = raw_output.outputs[0].logprobs
+    token_ids = raw_output.outputs[0].token_ids
+    
+    for i, (token_id, logprob_dict) in enumerate(zip(token_ids, logprobs_data)):
+        token = qwen_tokenizer.decode([token_id]).strip()
+        if token in ['0', '1'] or 'GROUNDED' in token.upper():
+            if logprob_dict and token_id in logprob_dict:
+                return logprob_dict[token_id].logprob
+    return None
+
+def generate_vllm(all_inputs,scored=None):
+    global qwen_model, qwen_tokenizer
+
+    sampling_params = SamplingParams(
+        temperature=0.7,
+        top_p=0.9,
+        max_tokens=MAX_NEW_TOKENS,
+        truncate_prompt_tokens=MAX_PROMPT_FOR_TRUNCATION,
+        logprobs=scored,
+    )
+    all_outputs=qwen_model.generate(all_inputs, sampling_params) # [inputs]
+
+    all_answers=[]
+    all_logprobs=[]
+    for idx_output, raw_output in enumerate(all_outputs):
+        output = raw_output.outputs[0].text
+        
+        try:
+            # rindex finding 151668 (</think>)
+            index_txt = len(output) - output.index("</think>")
+        except ValueError:
+            index_txt = 0
+        try:
+            # rindex finding 151668 (</think>)
+            index = len(raw_output.outputs[0].token_ids) - raw_output.outputs[0].token_ids[::-1].index(151668)
+        except ValueError:
+            index = 0
+
+
+        # thinking_content = output[:index_txt].strip("\n")
+        # content = output[index_txt:].strip("\n")
+
+        # print("txtttt thinking content:", thinking_content)
+        # print("content:", content)
+
+
+        thinking_content = qwen_tokenizer.decode(raw_output.outputs[0].token_ids[:index], skip_special_tokens=True).strip("\n")
+        content = qwen_tokenizer.decode(raw_output.outputs[0].token_ids[index:], skip_special_tokens=True).strip("\n")
+        if scored:
+            logprobs_data = raw_output.outputs[0].logprobs
+            #print("logprobs_data",logprobs_data)
+            classification_score = -float('inf')
+        
+            for i in range(index, len(logprobs_data)):
+                token_id = list(logprobs_data[i].keys())[0]
+                if index < len(logprobs_data):
+                    token_logprob_dict = logprobs_data[i]
+                    
+                    if token_id in token_logprob_dict:
+                        token_obj = token_logprob_dict[token_id]
+                        decoded_token = token_obj.decoded_token
+                        
+                        # CHECK: Is this token just whitespace?
+                        if decoded_token and decoded_token.strip():
+                            log_prob = token_obj.logprob
+                            classification_score = math.exp(log_prob)
+                            print("token found",decoded_token,classification_score)
+                            if '1' in result or 'GROUNDED' in decoded_token.upper():
+                                print("!!! Different than class")
+
+                            break 
+                # first_answer_token_logprobs = logprobs_data[index:]
+                
+                # # Get the specific token ID that was actually generated
+                # generated_token_id = raw_output.outputs[0].token_ids[index:][-2]                
+            print("logprobs:", classification_score)
+        print("thinking content:", thinking_content)
+        print("content:", content)
+
+
+
+        
+        # Decode and extract result
+        result = content #tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
+        result = result.strip()
+        if '1' in result or 'GROUNDED' in result.upper():
+            filetred_answer= 1
+        else:
+            filetred_answer= 0
+        all_answers.append(filetred_answer)
+        all_logprobs.append(classification_score)
+        
+        # if logprobs_data:
+        #     print(f"Sample {idx_output} logprobs:")
+        #     for token_id, logprob_dict in zip(raw_output.outputs[0].token_ids, logprobs_data):
+        #         token = qwen_tokenizer.decode([token_id])
+        #         # logprob_dict is a dict mapping token_id to Logprob object
+        #         if logprob_dict:
+        #             for tid, lp in logprob_dict.items():
+        #                 print(f"  Token: '{token}' (id={tid}), logprob: {lp.logprob:.4f}")
+        
+        # print("Using get_classification_confidence:",get_classification_confidence(raw_output,qwen_tokenizer))
+    return all_answers, all_logprobs
+
 
 def compute_len(data):
     """Compute average length of predictions."""
@@ -151,6 +318,275 @@ def _run_nli_autoais(passage, claim):
     result = autoais_tokenizer.decode(outputs[0], skip_special_tokens=True)
     inference = 1 if result == "1" else 0
     return inference
+
+
+def _run_qwen(passage, claim):
+    """
+    """
+    if passage == '' or claim== '':
+        return 0
+    #system_prompt = """You will be given a claim and a document. Determine whether the claim is 'GROUNDED' or 'NOT GROUNDED' based on the document.A 'GROUNDED' claim is factually accurate and fully supported by the information provided in the document. It should be directly verifiable from the document. Only return the classification as the answer: 1 for 'GROUNDED' or 0 for 'NOT GROUNDED' without any explanation"""
+    system_prompt = """Your task is to determine whether a claim is 'GROUNDED' or 'NOT GROUNDED' on a document. You will be given the "CLAIM" and the "DOCUMENT". The "CLAIM" is a part of a full answer in reponse to a question, you will also be given the full "ANSWER" as well as the "QUESTION" for full context. Use the "QUESTION" and the full "ANSWER" to fully contexualize the "CLAIM" then examine the "CLAIM" and the "DOCUMENT" to determine whether the "CLAIM" is grounded or not.  A 'GROUNDED' claim is fully supported by the information provided in the "DOCUMENT". It should be directly verifiable from the "DOCUMENT". Only return the classification as the your answer: 1 for 'GROUNDED' or 0 for 'NOT GROUNDED' without any explanation"""
+
+    user_prompt = f"""CLAIM: {claim} 
+
+    DOCUMENT: {passage}
+
+    CLASSIFICATION:"""
+
+    messages = [
+            {
+            "role": "system",
+            "content": system_prompt,
+            },
+            {"role": "user", 
+            "content": user_prompt}
+        ]
+
+    global qwen_model, qwen_tokenizer
+    if qwen_model is None:
+        qwen_tokenizer = AutoTokenizer.from_pretrained(QWEN_MODEL)
+        qwen_model = AutoModelForCausalLM.from_pretrained(
+            QWEN_MODEL,
+            torch_dtype=torch.float16,
+            device_map="auto"
+        )
+
+    # Apply chat template
+    text_input = qwen_tokenizer.apply_chat_template(
+        messages,
+        add_generation_prompt=True,
+        tokenize=False
+    )
+    inputs = qwen_tokenizer(text_input, return_tensors="pt").to(qwen_model.device)
+ 
+    with torch.inference_mode():
+        generated_ids = qwen_model.generate(
+            **inputs,
+            max_new_tokens=1024,  # We only need 1 token (0 or 1)
+        )
+        output_ids  = generated_ids[0][len(inputs.input_ids[0]):].tolist() 
+
+    # parsing thinking content
+    try:
+        # rindex finding 151668 (</think>)
+        index = len(output_ids) - output_ids[::-1].index(151668)
+    except ValueError:
+        index = 0
+
+    thinking_content = qwen_tokenizer.decode(output_ids[:index], skip_special_tokens=True).strip("\n")
+    content = qwen_tokenizer.decode(output_ids[index:], skip_special_tokens=True).strip("\n")
+
+    print("thinking content:", thinking_content)
+    print("content:", content)
+    
+    # Decode and extract result
+    result = content #tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
+    result = result.strip()
+    if '1' in result or 'GROUNDED' in result.upper():
+        return 1
+    else:
+        return 0
+
+def compute_entail_llm(
+    data,
+    decontext=False,
+    concat=False,
+    at_most_citations=None,
+    model_path=None,
+    filter_column=None,
+    filter_value=None,
+    scored=False,
+    vllm=False,
+    batch=100,
+    thinking=True,
+):
+    """
+    Compute AutoAIS score.
+
+    Args:
+        data: requires field `output` and `docs`
+              - docs should be a list of items with fields `title` and `text` (or `phrase` and `sent` for QA-extracted docs)
+        citation: check citations and use the corresponding references.
+        decontext: decontextualize the output
+    """
+
+    global qwen_model, qwen_tokenizer
+    if qwen_model is None:
+        if model_path is None:
+            model_name = QWEN_MODEL
+            logger.info("Loading QWEN model...")
+        else:
+            logger.info(f"Loading custom model...{model_path}")
+            model_name = model_path
+        
+        if vllm:
+            qwen_tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+            qwen_model = LLM(
+                model=model_name,
+                tensor_parallel_size=torch.cuda.device_count(),
+                gpu_memory_utilization=0.9,
+                max_model_len=MAX_MODEL_LEN,
+                dtype='bfloat16',
+                enforce_eager=False,
+                # for LORA
+                trust_remote_code=True,
+                #enable_lora=True,
+            )
+        else:
+            nf4_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_compute_dtype=torch.bfloat16, #float32, #bfloat16, #
+                dtype=torch.bfloat16, #float32, #bfloat16, 
+            )
+
+
+            qwen_tokenizer = AutoTokenizer.from_pretrained(model_name)
+            qwen_model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                dtype=torch.bfloat16, #torch_dtype
+                #max_memory=get_max_memory(),
+                device_map="auto",
+                quantization_config=nf4_config
+            )
+
+    logger.info(f"Running QWEN...")
+    get_logits= 1 if scored else None
+    logger.info(f"Getting LOGITS {scored} top {get_logits}...")
+
+    ais_scores = []
+    ais_scores_prec = []
+
+
+    #autoais_log = []
+    updated_items=[]
+    accuracy=[]
+
+    prepared_inputs=[]
+    batched_items=[]
+    for idx,item in tqdm(enumerate(data)):
+        if filter_column is not None and filter_value is not None:
+            if filter_column in item.keys():
+                if item[filter_column]!=filter_value:
+                    updated_items.append(item)
+                    continue
+        # Get sentences by using NLTK
+        sents = item["claim"]
+        if len(sents) == 0:
+            continue
+        target_sent = remove_citations(sents).strip()
+
+        
+        if vllm:
+            query = (
+                item["question"]
+                if 'question' in item.keys() and item["question"] not in ["nan", "", None]
+                else ""
+            )
+            response = (
+                item["response"]
+                if "response" in item.keys() and item["response"] not in ["nan", "", None]
+                else ""
+            )
+            claim = (
+                item["claim"]
+                if item["claim"] and item["claim"] not in ["nan", "", None]
+                else ""
+            )
+            claim = remove_citations(claim).strip()
+            refs = [ str(ref)  if ref not in ["nan", "", None] else "" for ref in item["references"]]
+            documents_concatenation = "\n\n\n".join(refs)
+
+            prepared_inputs.append(prepare_input(query,response,claim, documents_concatenation, thinking))
+            batched_items.append(item)
+            if idx != 0 and idx%batch == 0:
+                res, probs = generate_vllm(prepared_inputs, scored=get_logits)
+                for idx_res in range(len(res)):
+                    ais_scores.append(res[idx_res]) 
+                    batched_items[idx_res]["auto_score"] = res[idx_res]
+                    if scored:
+                        batched_items[idx_res]["logit"] = probs[idx_res]
+                    int_gold_label= 1 if (batched_items[idx_res]['attribution_label']== "attributable") else 0
+                    batched_items[idx_res]["accuracy"] = 1 if batched_items[idx_res]["auto_score"] == int_gold_label else 0
+                    accuracy.append(batched_items[idx_res]["accuracy"])
+                    updated_items.append(batched_items[idx_res])
+
+                prepared_inputs=[]
+                batched_items=[]
+        else:     
+            if scored:
+                nli_result = _run_qwen("\n".join(item["references"]), target_sent)
+                item["logit"] = 0
+            else:
+                nli_result = _run_qwen("\n".join(item["references"]), target_sent)
+            # autoais_log.append(
+            # {
+            #     "question": item["question"], ##question query
+            #     "claim": item["claim"],
+            #     "passage": item["references"],
+            #     "model_type": "NLI",
+            #     "model_output": nli_result,
+            #     }
+            # )
+
+            ais_scores.append(nli_result) 
+            item["auto_score"] = nli_result
+            int_gold_label= 1 if (item['attribution_label']== "attributable") else 0
+            item["accuracy"] = 1 if item["auto_score"] == int_gold_label else 0
+            accuracy.append(item["accuracy"])
+            updated_items.append(item)
+    return {
+        "ais_scores": 100 * np.mean(ais_scores),
+        "accuracy": 100 *np.mean(accuracy),
+        "data":updated_items,
+    }
+
+
+# def _run_qwen(passage, claim):
+#     """
+#     Run inference for assessing AIS between a premise and hypothesis.
+#     Adapted from https://github.com/google-research-datasets/Attributed-QA/blob/main/evaluation.py
+#     """
+#     global qwen_model, qwen_tokenizer
+#     if qwen_model is None:
+#          #"stabilityai/stablelm-zephyr-3b" #"meta-llama/Llama-2-7b-chat-hf"
+#         logger.info(f"Loading Language model...{QWEN_MODEL}")
+#         # Load the model and tokenizer
+#         qwen_tokenizer = AutoTokenizer.from_pretrained(QWEN_MODEL) #, cache_dir= os.environ['WORK'] + '/.cache/huggingface/hub')
+#         qwen_model = LLM(
+#             model=QWEN_MODEL,
+#             tensor_parallel_size=torch.cuda.device_count(),
+#             gpu_memory_utilization=0.9,
+#             max_model_len=8192,
+#             dtype='bfloat16',
+#             enforce_eager=False,
+#             # for LORA
+#             trust_remote_code=True,
+#             enable_lora=True,
+#         )
+#     input_text = [
+#             {
+#                 "role": "system",
+#                 "content": system_prompt,
+#             },
+#             {"role": "user", 
+#             "content": user_prompt}
+#         ]
+#     inputs = qwen_tokenizer.apply_chat_template(
+#             input_text, add_generation_prompt=True, return_tensors="pt",tokenize=False
+#         )
+#     input_text = "premise: {} hypothesis: {}".format(passage, claim)
+#     input_ids = autoais_tokenizer(input_text, return_tensors="pt",truncation=True, max_length=512).input_ids.to(
+#         autoais_model.device
+#     )
+#     with torch.inference_mode():
+#         outputs = autoais_model.generate(input_ids, max_new_tokens=10)
+#     result = autoais_tokenizer.decode(outputs[0], skip_special_tokens=True)
+#     inference = 1 if result == "1" else 0
+#     return inference
     
 def _run_nli_autoais_scored(passage, claim):
     global autoais_model, autoais_tokenizer
@@ -379,7 +815,7 @@ def main():
     )
 
     parser.add_argument(
-        "--eval_model", type=str, help="which eval model", choices=["nli_true_zs", "alignscore","nli_aligned","custom"], default="nli_true_zs"
+        "--eval_model", type=str, help="which eval model", choices=["nli_true_zs", "alignscore","nli_aligned","custom","llm"], default="nli_true_zs"
     )
     parser.add_argument(
         "--model_path", type=str, help="Path to the metric model", default=None
@@ -448,6 +884,12 @@ def main():
     parser.add_argument(
         "--prediction_column",type=str, default="auto_score", help="predictin column"
     )
+    parser.add_argument(
+        "--vllm", action="store_true",  help="use vllm",
+    )
+    parser.add_argument(
+        "--without_thinking", action="store_false",  help="don't use thinking mode",
+    )
 
 
     args = parser.parse_args()
@@ -463,6 +905,7 @@ def main():
     tag=tag+args.dataset_name +"_" if args.dataset_name else tag
     tag=tag+args.eval_model+"_" if args.eval_model else tag
     tag=tag+"trained_" if args.model_path else tag
+    tag=tag+'withoutthinking_' if args.without_thinking==False else tag
     tag=tag+"scored_" if args.scored else tag
     tag=tag+args.split if args.split else tag
     results_file=code_validation+"metric_eval_" +tag 
@@ -520,6 +963,9 @@ def main():
             print(data.head())
             print(data['references'][0])
             data=data.to_dict('records')
+        print("True Data sample:",data[0])
+        print("True Data sample-claim:",data[0]["claim"])
+        
 
     elif args.dataset == "attriBench":
         features = datasets.Features({
@@ -555,7 +1001,7 @@ def main():
         "We replace any on the fly search result to standard bracket citation format."
     )
     for i in range(len(data)):
-        data[i]["claim"] = data[i]["claim"].strip().split("\n")[0]
+        data[i]["claim"] = str(data[i]["claim"]).strip().split("\n")[0]
         data[i]["claim"] = data[i]["claim"].replace("<|im_end|>", "")
         if "query" in data[i].keys():
             data[i]["question"] = data[i]["query"]
@@ -582,23 +1028,31 @@ def main():
     # Run METRIC
     result = {}
     result["length"] = compute_len(normalized_data)
-    result.update(
-        compute_autoais(
-            data, at_most_citations=args.at_most_citations, model_path=args.model_path, filter_column=args.filter_column, filter_value=args.filter_value, scored=args.scored
+    if args.eval_model == "llm":
+        result.update(
+            compute_entail_llm(
+                data, at_most_citations=args.at_most_citations, model_path=args.model_path, filter_column=args.filter_column, filter_value=args.filter_value, scored=args.scored, vllm=args.vllm,thinking=args.without_thinking
+            )
         )
-    )
+    else:
+        result.update(
+            compute_autoais(
+                data, at_most_citations=args.at_most_citations, model_path=args.model_path, filter_column=args.filter_column, filter_value=args.filter_value, scored=args.scored
+            )
+        )
 
 
     # Accuracy Eval
     if args.evaluate:
-        df = pd.DataFrame(result["data"])
+        #df = pd.DataFrame(result["data"])
         all_scores=compute_metrics(result["data"],prediction_column=args.prediction_column, scoredlabels=args.scored,group_by_column=args.group_by_column)
 
+        #result["auc_roc"]=all_scores[2].to_dict('index')
         result["evaluation2"]=all_scores[0].to_dict('index') 
         result["evaluation3"]=all_scores[1].to_dict('index')
 
 
-
+    merged_result= None
     if args.batchsize is not None and args.batchid is not None:
         if end >= full_dataset_length:
             if args.f:
@@ -607,14 +1061,24 @@ def main():
                 folder_path=results_folder
             logger.info(f"Merging All Batched Files in folder {folder_path}")
             try:
-                data = read_json_files_from_folder(folder_path)
+                merged_result = read_json_files_from_folder(folder_path)
+                merged_result["data"] = merged_result["data"] + result["data"]
             except:
                 logger.info("Error while Merging Files")
 
     if args.dataset == "true" and args.true_folder is not None:
-        save_csv=os.path.join(args.true_folder, results_file)
-        df = pd.DataFrame(result["data"])
-        df.to_csv(save_csv, index=False)
+        if merged_result:
+            df = pd.DataFrame(merged_result["data"]) 
+            df["score"]=df.apply(lambda x : 1-x["logit"] if x['auto_score']==0 else x["logit"],axis=1)
+            df["label"]=df.apply(lambda x : 1 if x['attribution_label']=="attributable" else 0,axis=1)
+            for src in df["src_dataset"].unique():
+                subdf=df[df["src_dataset"] == src]
+                subresults_file=results_file[:-5]+src+".csv"
+                save_csv=os.path.join(args.true_folder, subresults_file)
+                subdf.to_csv(save_csv)
+                
+            save_csv=os.path.join(args.true_folder, results_file)
+            df.to_csv(save_csv, index=False)
 
     if args.f:
         if args.batchsize is not None and args.batchid is not None:
