@@ -2,25 +2,25 @@
 # Script JEANZAY
 
 ############ GENERAL SETTINGS ############
-#SBATCH --job-name=truesft #augmented_train_eval4Bth
-#SBATCH --array=0-7 # 
-#SBATCH --output=logs/truesft_%A_%a.out
-#SBATCH --error=logs/truesft_%A_%a.err
+#SBATCH --job-name=augmented_train_eval30B
+#SBATCH --array=3-3 # 
+#SBATCH --output=logs/augmented_train_eval30B_%A_%a.out
+#SBATCH --error=logs/augmented_train_eval30B_%A_%a.err
 ##########################################
 
 
 
 
 #SBATCH --gres=gpu:4   #for v account max is 4 #
-#SBATCH --qos=qos_gpu_a100-dev
+#SBATCH --qos=qos_gpu_h100-dev
 #SBATCH --ntasks-per-node=1
 #SBATCH --nodes=1
 #SBATCH --hint=nomultithread
 #SBATCH --time=2:00:00
 #SBATCH --constraint=a100
 #SBATCH --cpus-per-task=30
-#SBATCH --account=fiz@a100
-#SBATCH -C a100
+#SBATCH --account=fiz@h100
+#SBATCH -C h100
 
 ################### V100 default ######################
 ##SBATCH -C v100
@@ -68,7 +68,7 @@ export HF_EVALUATE_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 
 module purge
-module load arch/a100
+module load arch/h100
 module load pytorch-gpu/py3/2.8.0
 export HF_HOME=$WORK/.cache/huggingface
 
@@ -76,7 +76,11 @@ export HF_HOME=$WORK/.cache/huggingface
 #CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "attriBench"  --split "test" --batchsize 400 --batchid  $SLURM_ARRAY_TASK_ID 
 #CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --f /lustre/fswork/projects/rech/fiz/udo61qq/Code/RAGnRoll/results/augmented_datasets/Llama-3.1-8B-Instruct_allfewshot/all_augmented_datasetLlama-3.1-8B-Instruct_allfewshot_corrected.json --filter_column "example_type" --filter_value generated --tag "generated_augmented" --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID 
 
+#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "true" --true_folder "/lustre/fswork/projects/rech/fiz/udo61qq/Code/true/" --scored --evaluate --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID 
 
+#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "true" --true_folder "/lustre/fswork/projects/rech/fiz/udo61qq/Code/true/" --evaluate --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID --eval_model "llm" --tag  "scored_qwen3-4B_ft_unsloth_qwen_classif_3ep_true_16bit" --vllm  --model_path /lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/notebook_models/2ep_attribench_ogargs_3ep_16bit --scored
+
+#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "true" --true_folder "/lustre/fswork/projects/rech/fiz/udo61qq/Code/true/" --evaluate --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID --eval_model "llm" --tag  "scored_qwen3-4B_zs" --vllm  --scored
 
 
 #CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --f /lustre/fswork/projects/rech/fiz/udo61qq/Code/RAGnRoll/results/augmented_datasets/Llama-3.1-8B-Instruct_allfewshot_v01/all_augmented_datasetLlama-3.1-8B-Instruct_allfewshot_v01.json  --filter_column "example_type" --filter_value generated --group_by_column "error_type" --tag "train_gen_evaluated" --eval_model "nli_aligned" --scored --evaluate --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID 
@@ -91,25 +95,11 @@ export HF_HOME=$WORK/.cache/huggingface
 #CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py  --f /lustre/fswork/projects/rech/fiz/udo61qq/Code/RAGnRoll/results/augmented_datasets/Qwen3-30B-A3B-Instruct-2507_allfewshot_v2/all_Qwen3-30B-A3B-Instruct-2507_allfewshot_v2.json --filter_column "example_type" --filter_value generated --group_by_column "error_type" --tag "augmented_gen_evaluatedqwen4Bth" --eval_model "llm"  --scored  --model_path "Qwen/Qwen3-4B" --vllm --prediction_column 'qwen_score' --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID 
 
 
-#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py  --f /lustre/fswork/projects/rech/fiz/udo61qq/Code/RAGnRoll/results/augmented_datasets/Qwen3-30B-A3B-Instruct-2507_allfewshot_v2/all_Qwen3-30B-A3B-Instruct-2507_allfewshot_v2.json --filter_column "example_type" --filter_value generated --group_by_column "error_type" --tag "augmented_gen_evaluatedqwen" --eval_model "llm"  --scored  --model_path "Qwen/Qwen3-8B" --vllm --prediction_column 'qwen_score'  --without_thinking --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID 
+#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py  --f /lustre/fswork/projects/rech/fiz/udo61qq/Code/RAGnRoll/results/augmented_datasets/Qwen3-30B-A3B-Instruct-2507_allfewshot_v2/all_Qwen3-30B-A3B-Instruct-2507_allfewshot_v2.json --filter_column "example_type" --filter_value generated --group_by_column "error_type" --tag "augmented_gen_evaluatedqwen8B" --eval_model "llm"  --scored  --model_path "Qwen/Qwen3-8B" --vllm --prediction_column 'qwen_score'  --without_thinking --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID 
 
-#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py  --f /lustre/fswork/projects/rech/fiz/udo61qq/Code/RAGnRoll/results/augmented_datasets/Qwen3-30B-A3B-Instruct-2507_allfewshot_v2/all_Qwen3-30B-A3B-Instruct-2507_allfewshot_v2.json --filter_column "example_type" --filter_value generated --group_by_column "error_type" --tag "augmented_gen_evaluatedqwen" --eval_model "llm"  --scored   --model_path "Qwen/Qwen3-4B" --vllm --prediction_column 'qwen_score'  --without_thinking --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID 
-
+#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py  --f /lustre/fswork/projects/rech/fiz/udo61qq/Code/RAGnRoll/results/augmented_datasets/Qwen3-30B-A3B-Instruct-2507_allfewshot_v2/all_Qwen3-30B-A3B-Instruct-2507_allfewshot_v2.json --filter_column "example_type" --filter_value generated --group_by_column "error_type" --tag "augmented_gen_evaluatedqwen" --eval_model "llm"  --scored  --model_path "Qwen/Qwen3-4B" --vllm --prediction_column 'qwen_score'  --without_thinking --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID 
 
 #CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py  --f /lustre/fswork/projects/rech/fiz/udo61qq/Code/RAGnRoll/results/augmented_datasets/Qwen3-30B-A3B-Instruct-2507_allfewshot_v2/all_Qwen3-30B-A3B-Instruct-2507_allfewshot_v2.json --filter_column "example_type" --filter_value generated --group_by_column "error_type" --tag "augmented_gen_evaluatednli" --eval_model "nli_aligned"  --scored  --prediction_column 'nli_score'  --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID 
 
+CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py  --f /lustre/fswork/projects/rech/fiz/udo61qq/Code/RAGnRoll/results/augmented_datasets/Qwen3-30B-A3B-Instruct-2507_allfewshot_v2/all_Qwen3-30B-A3B-Instruct-2507_allfewshot_v2.json --filter_column "example_type" --filter_value generated --group_by_column "error_type" --tag "augmented_gen_evaluatedqwen30Bth" --eval_model "llm"  --scored  --model_path "Qwen/Qwen3-30B-A3B-Instruct-2507" --vllm --prediction_column 'qwen_score' --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID 
 
-#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "true" --true_folder "/lustre/fswork/projects/rech/fiz/udo61qq/Code/true/" --scored --evaluate --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID 
-
-#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "true" --true_folder "/lustre/fswork/projects/rech/fiz/udo61qq/Code/true/" --evaluate --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID --eval_model "llm" --tag  "scored_qwen3-4B_ft_unsloth_qwen_classif_3ep_true_16bit" --vllm  --model_path /lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/notebook_models/2ep_attribench_ogargs_3ep_16bit --scored
-
-#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "true" --true_folder "/lustre/fswork/projects/rech/fiz/udo61qq/Code/true/" --evaluate --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID --eval_model "llm" --tag  "scored_qwen3-4B_zs" --vllm  --scored
-
-
-#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "true" --true_folder "/lustre/fswork/projects/rech/fiz/udo61qq/Code/true/" --evaluate --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID --eval_model "llm" --tag  "scored_qwen3-4B_CONT_unsloth_qwen_classif_3ep_true_16bit" --vllm  --model_path  /lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/notebook_models/qwen4B_unslothnotebookcontrastive_attributionBench_hardpos_augmentedQwen30B_allerrors_contrastive_16bit --vllm  --scored
-
-### t5 sft
-#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "true" --true_folder "/lustre/fswork/projects/rech/fiz/udo61qq/Code/true/" --evaluate --scored  --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID --tag  "scored_nli_SFT_attribench"   --model_path /lustre/fswork/projects/rech/fiz/udo61qq/Code/checkpoints/attribution_models/google/t5_xxl_true_nli_mixture-AttributionBench-template-base_c_e-bs16-lr1e-5-gas4
-
-### t5 cont
-CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "true" --true_folder "/lustre/fswork/projects/rech/fiz/udo61qq/Code/true/" --evaluate --scored  --batchsize 15000 --batchid  $SLURM_ARRAY_TASK_ID --tag  "scored_nli_SFT_attribench"   --model_path /lustre/fswork/projects/rech/fiz/udo61qq/Code/AttributionBench/models/attribution_models/T5-use_InbatchNegatives-attributionBench_hardpos_augmentedQwen30B_allerrors_contrastive-bs32-lr5e-5-gas4-contW1.0-classifW1.0-Ep3-nneg5-npos5-tau1.0

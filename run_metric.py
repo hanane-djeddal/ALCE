@@ -237,10 +237,11 @@ def generate_vllm(all_inputs,scored=None):
 
         thinking_content = qwen_tokenizer.decode(raw_output.outputs[0].token_ids[:index], skip_special_tokens=True).strip("\n")
         content = qwen_tokenizer.decode(raw_output.outputs[0].token_ids[index:], skip_special_tokens=True).strip("\n")
+        classification_score = 0.0 #-float('inf')
         if scored:
             logprobs_data = raw_output.outputs[0].logprobs
             #print("logprobs_data",logprobs_data)
-            classification_score = -float('inf')
+            
         
             for i in range(index, len(logprobs_data)):
                 token_id = list(logprobs_data[i].keys())[0]
@@ -256,8 +257,8 @@ def generate_vllm(all_inputs,scored=None):
                             log_prob = token_obj.logprob
                             classification_score = math.exp(log_prob)
                             print("token found",decoded_token,classification_score)
-                            if '1' in result or 'GROUNDED' in decoded_token.upper():
-                                print("!!! Different than class")
+                            # if '1' not in decoded_token.upper() or 'GROUNDED' not in decoded_token.upper():
+                            #     print("!!! Different than class")
 
                             break 
                 # first_answer_token_logprobs = logprobs_data[index:]
@@ -400,6 +401,7 @@ def compute_entail_llm(
     vllm=False,
     batch=100,
     thinking=True,
+    prediction_column='auto_score',
 ):
     """
     Compute AutoAIS score.
@@ -506,11 +508,11 @@ def compute_entail_llm(
                 res, probs = generate_vllm(prepared_inputs, scored=get_logits)
                 for idx_res in range(len(res)):
                     ais_scores.append(res[idx_res]) 
-                    batched_items[idx_res]["auto_score"] = res[idx_res]
+                    batched_items[idx_res][prediction_column] = res[idx_res]
                     if scored:
                         batched_items[idx_res]["logit"] = probs[idx_res]
                     int_gold_label= 1 if (batched_items[idx_res]['attribution_label']== "attributable") else 0
-                    batched_items[idx_res]["accuracy"] = 1 if batched_items[idx_res]["auto_score"] == int_gold_label else 0
+                    batched_items[idx_res]["accuracy"] = 1 if batched_items[idx_res][prediction_column] == int_gold_label else 0
                     accuracy.append(batched_items[idx_res]["accuracy"])
                     updated_items.append(batched_items[idx_res])
 
@@ -533,9 +535,9 @@ def compute_entail_llm(
             # )
 
             ais_scores.append(nli_result) 
-            item["auto_score"] = nli_result
+            item[prediction_column] = nli_result
             int_gold_label= 1 if (item['attribution_label']== "attributable") else 0
-            item["accuracy"] = 1 if item["auto_score"] == int_gold_label else 0
+            item["accuracy"] = 1 if item[prediction_column] == int_gold_label else 0
             accuracy.append(item["accuracy"])
             updated_items.append(item)
     return {
@@ -694,6 +696,7 @@ def compute_autoais(
     filter_column=None,
     filter_value=None,
     scored=False,
+    prediction_column='auto_score',
 ):
     """
     Compute AutoAIS score.
@@ -771,9 +774,9 @@ def compute_autoais(
         # )
 
         ais_scores.append(nli_result) 
-        item["auto_score"] = nli_result
+        item[prediction_column] = nli_result
         int_gold_label= 1 if (item['attribution_label']== "attributable") else 0
-        item["accuracy"] = 1 if item["auto_score"] == int_gold_label else 0
+        item["accuracy"] = 1 if item[prediction_column] == int_gold_label else 0
         accuracy.append(item["accuracy"])
         updated_items.append(item)
     return {
@@ -890,6 +893,9 @@ def main():
     parser.add_argument(
         "--without_thinking", action="store_false",  help="don't use thinking mode",
     )
+    parser.add_argument(
+        "--merge", action="store_true",  help="merge files",
+    )
 
 
     args = parser.parse_args()
@@ -910,6 +916,10 @@ def main():
     tag=tag+args.split if args.split else tag
     results_file=code_validation+"metric_eval_" +tag 
     results_folder=os.path.join(args.results_folder , tag )
+    if args.f is not None:
+        results_folder_name=os.path.dirname(args.f)
+        results_folder=os.path.join(results_folder_name , tag )
+
     print("Evaluating file:", args.f)
 
     try:
@@ -965,6 +975,7 @@ def main():
             data=data.to_dict('records')
         print("True Data sample:",data[0])
         print("True Data sample-claim:",data[0]["claim"])
+        print("True Data length:",len(data))
         
 
     elif args.dataset == "attriBench":
@@ -1031,67 +1042,89 @@ def main():
     if args.eval_model == "llm":
         result.update(
             compute_entail_llm(
-                data, at_most_citations=args.at_most_citations, model_path=args.model_path, filter_column=args.filter_column, filter_value=args.filter_value, scored=args.scored, vllm=args.vllm,thinking=args.without_thinking
+                data, at_most_citations=args.at_most_citations, model_path=args.model_path, filter_column=args.filter_column, filter_value=args.filter_value, scored=args.scored, vllm=args.vllm,thinking=args.without_thinking, prediction_column=args.prediction_column
             )
         )
     else:
         result.update(
             compute_autoais(
-                data, at_most_citations=args.at_most_citations, model_path=args.model_path, filter_column=args.filter_column, filter_value=args.filter_value, scored=args.scored
+                data, at_most_citations=args.at_most_citations, model_path=args.model_path, filter_column=args.filter_column, filter_value=args.filter_value, scored=args.scored, prediction_column=args.prediction_column
             )
         )
 
 
     # Accuracy Eval
     if args.evaluate:
+        print("Evaluation Results of:", args.eval_model, args.model_path)
         #df = pd.DataFrame(result["data"])
-        all_scores=compute_metrics(result["data"],prediction_column=args.prediction_column, scoredlabels=args.scored,group_by_column=args.group_by_column)
+        try:
+            all_scores=compute_metrics(result["data"],prediction_column=args.prediction_column, scoredlabels=args.scored,group_by_column=args.group_by_column)
 
-        #result["auc_roc"]=all_scores[2].to_dict('index')
-        result["evaluation2"]=all_scores[0].to_dict('index') 
-        result["evaluation3"]=all_scores[1].to_dict('index')
+            #result["auc_roc"]=all_scores[2].to_dict('index')
+            result["evaluation2"]=all_scores[0].to_dict('index') 
+            result["evaluation3"]=all_scores[1].to_dict('index')
+        except:
+            logger.info("Error while Evaluating")
 
 
     merged_result= None
+    merged= False
     if args.batchsize is not None and args.batchid is not None:
-        if end >= full_dataset_length:
-            if args.f:
-                folder_path = os.path.dirname(args.f)
-            else:
-                folder_path=results_folder
+        merged_result= None
+        if end >= full_dataset_length and args.merge:
+            # if args.f:
+            #     folder_path = os.path.dirname(args.f)
+            # else:
+            folder_path=results_folder
             logger.info(f"Merging All Batched Files in folder {folder_path}")
             try:
                 merged_result = read_json_files_from_folder(folder_path)
-                merged_result["data"] = merged_result["data"] + result["data"]
+                result["data"] = merged_result["data"] + result["data"]
+                logger.info(f"All merged results: {len(result['data'])}")
+                merged=True
             except:
                 logger.info("Error while Merging Files")
+                merged_result=None
+            if args.evaluate and merged_result:
+                print("Evaluation Results of:", args.eval_model, args.model_path)
+                #df = pd.DataFrame(result["data"])
+                try:
+                    all_scores=compute_metrics(result["data"],prediction_column=args.prediction_column, scoredlabels=args.scored,group_by_column=args.group_by_column)
+
+                    #result["auc_roc"]=all_scores[2].to_dict('index')
+                    result["evaluation2"]=all_scores[0].to_dict('index') 
+                    result["evaluation3"]=all_scores[1].to_dict('index')
+                    #result["data"]= merged_result
+                except:
+                    logger.info("Error while Evaluating")
 
     if args.dataset == "true" and args.true_folder is not None:
         if merged_result:
             df = pd.DataFrame(merged_result["data"]) 
-            df["score"]=df.apply(lambda x : 1-x["logit"] if x['auto_score']==0 else x["logit"],axis=1)
+            df["score"]=df.apply(lambda x : 1-x["logit"] if x[args.prediction_column]==0 else x["logit"],axis=1)
             df["label"]=df.apply(lambda x : 1 if x['attribution_label']=="attributable" else 0,axis=1)
             for src in df["src_dataset"].unique():
                 subdf=df[df["src_dataset"] == src]
                 subresults_file=results_file[:-5]+src+".csv"
                 save_csv=os.path.join(args.true_folder, subresults_file)
                 subdf.to_csv(save_csv)
+                print("Saving results True df:",save_csv)
                 
             save_csv=os.path.join(args.true_folder, results_file)
             df.to_csv(save_csv, index=False)
+            print("Saving results True df:",save_csv)
 
-    if args.f:
-        if args.batchsize is not None and args.batchid is not None:
-            results_file=args.f[:-5]+str(start)+"-"+str(end)+"nli.json"
-        else:
-            results_file=args.f[:-5]+"_nli.json"
+    # if args.f:
+    #     if args.batchsize is not None and args.batchid is not None:
+    #         results_file=args.f[:-5]+str(start)+"-"+str(end)+"nli.json"
+    #     else:
+    #         results_file=args.f[:-5]+"_nli.json"
 
+    if args.batchsize is not None and args.batchid is not None and not merged:
+        results_file= str(start)+"-"+str(end) + results_file+".json"
     else:
-        if args.batchsize is not None and args.batchid is not None:
-            results_file= str(start)+"-"+str(end) + results_file+".json"
-        else:
-            results_file= results_file+".json"
-        results_file = os.path.join(results_folder, results_file)
+        results_file= results_file+".json"
+    results_file = os.path.join(results_folder, results_file)
 
     logger.info(f"Saving Result to {results_file}")
     with open(results_file, "w") as f:

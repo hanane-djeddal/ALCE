@@ -1,7 +1,7 @@
 #!/bin/sh
 # Script JEANZAY
 
-#SBATCH --job-name=deva100train_4Bvllmprompt2 #ft #qwen3-8B #vllm_eval #metric_ckpt #gendata #sftmixed #truebach2 #attribench_trained_balanced_testoodchpt300#trained_balanced_testood ata_gen_eval #
+#SBATCH --job-name=eval_testsynthetic #trained_qwen4BoptimAllshuffled  #allerror_shuffled # ##ft #qwen3-8B #vllm_eval #metric_ckpt #gendata #sftmixed #truebach2 #attribench_trained_balanced_testoodchpt300#trained_balanced_testood ata_gen_eval #
 #SBATCH --output=jz_%j_%x.out    # nom du fichier de sortie
 #SBATCH --error=errjz_%j_%x.out  
 #SBATCH --gres=gpu:4  #for v account max is 4 #
@@ -99,7 +99,7 @@ cd /lustre/fswork/projects/rech/fiz/udo61qq/Code/ALCE/
 #CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "attriBench" --dataset_name "subset_balanced" --split "train"  --eval_model "llm" --tag  "qwen_3_4Bprompt2" --evaluate --vllm  #--without_thinking --model_path "Qwen/Qwen3-8B"
 
 
-CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "attriBench" --dataset_name "subset_balanced" --split "test_ood"  --eval_model "llm" --tag  "qwen3-4B_ft_unsloth_qwen_classiftrl_2ep_attribench_16bit" --evaluate --vllm  --model_path /lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/2ep_attribenchaugmented_ogargs_2ep_devsplit_16bit
+#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "attriBench" --dataset_name "subset_balanced" --split "test_ood"  --eval_model "llm" --tag  "qwen3-4B_ft_unsloth_qwen_classiftrl_2ep_attribench_16bit" --evaluate --vllm  --model_path /lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/2ep_attribenchaugmented_ogargs_2ep_devsplit_16bit
 #/lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/models/qwen3_4b_attribench_classif_unsloth_2e_trl_ogargs_16bit
 #/lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/2ep_attribench_ogargs_3ep_16bit
 #/lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/2ep_attribenchaugmented_ogargs_2ep_devsplit_16bit
@@ -111,6 +111,21 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVA
 #"/lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/qwen_classif_trained_16bit_2ep"
 #/lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/qwen_classif_trained_16bit
 #"/lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/models/qwen3_4b_attribench_sft"
+#/lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/2ep_attribench_ogargs_3ep_16bit
 
 
-/lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/2ep_attribench_ogargs_3ep_16bit
+
+
+#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "attriBench" --dataset_name "subset_balanced" --split "test"  --eval_model "llm" --tag  "qwen4B_unslothnotebook_2ep_attributionBench_hardpos_augmentedQwen30B_allerror_shuffled" --evaluate --vllm  --model_path /lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/qwen4B_unslothnotebook_2ep_attributionBench_hardpos_augmentedQwen30B_allerror_shuffled_16bit --without_thinking 
+
+#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "attriBench" --dataset_name "subset_balanced" --split "test"  --eval_model "llm" --tag  "qwen4B_unslothnotebook_2ep_attributionBench_hardpos_augmentedQwen30B_error_optimAllshuffled" --evaluate --vllm  --model_path /lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/qwen4B_unslothnotebook_2ep_attributionBench_hardpos_augmentedQwen30B_error_optimAllshuffled_16bit --without_thinking 
+
+#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py --dataset "attriBench" --dataset_name "subset_balanced" --split "test"  --eval_model "llm" --tag  "qwen4B_unslothnotebook_2ep_attributionBench_hardpos_augmentedQwen30B_error_qwenOptimshuffled" --evaluate --vllm  --model_path /lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/qwen4B_unslothnotebook_2ep_attributionBench_hardpos_augmentedQwen30B_error_qwenOptimshuffled_16bit --without_thinking 
+
+
+#CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py  --f /lustre/fswork/projects/rech/fiz/udo61qq/Code/RAGnRoll/results/augmented_datasets/Qwen3-30B-A3B-Instruct-2507_allfewshot_alltest_v2/allQwen3-30B-A3B-Instruct-2507_allfewshot_alltest_v2_hardpos.json --evaluate  --eval_model "llm" --tag  "augmented_gen_evaluatedqwenTEST_SFTsmple_unsloth_qwen_classif_3ep_true_16bit" --vllm  --without_thinking --group_by_column "error_type" --model_path /lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/notebook_models/2ep_attribench_ogargs_3ep_16bit 
+#/lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/notebook_models/qwen4B_unslothnotebookcontrastive_attributionBench_hardpos_augmentedQwen30B_allerrors_contrastive_16bit
+#/lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/notebook_models/2ep_attribench_ogargs_3ep_16bit 
+
+CUDA_VISIBLE_DEVICES=0,1,2,3 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_EVALUATE_OFFLINE=1 python run_metric.py  --f /lustre/fswork/projects/rech/fiz/udo61qq/Code/RAGnRoll/results/augmented_datasets/Qwen3-30B-A3B-Instruct-2507_allfewshot_alltest_v2/allQwen3-30B-A3B-Instruct-2507_allfewshot_alltest_v2_hardpos.json --evaluate  --eval_model "llm" --tag  "augmented_gen_evaluatedqwenTEST_qwenZS4B" --vllm  --without_thinking --group_by_column "error_type" 
+#--model_path /lustre/fswork/projects/rech/fiz/udo61qq/Code/alignment-handbook/notebook_models/2ep_attribench_ogargs_3ep_16bit 
